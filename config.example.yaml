@@ -14,14 +14,18 @@ processing:
   show_progress: true
 
 counting:
-  # The line orientation defines direction:
-  # crossing from LEFT side -> RIGHT side counts as "IN"
-  # crossing from RIGHT side -> LEFT side counts as "OUT"
+  # mode: "zone" (recommended for rotated camera) or "line"
+  mode: "zone"
+  # Line mode:
   line:
     x1: 640
     y1: 120
     x2: 640
     y2: 680
+  # Zone mode (left/right split by X axis):
+  zone:
+    split_x: null             # null => auto (frame_width / 2)
+    margin_px: 40             # dead-zone around split to avoid jitter switches
 
 output:
   save_preview_video: false

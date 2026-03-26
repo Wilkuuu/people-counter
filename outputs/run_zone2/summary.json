@@ -1,0 +1,10 @@
+{
+  "total_crossings": 2,
+  "from_left": 0,
+  "from_right": 2,
+  "video_path": "/home/wilk/Desktop/Projects/people-counter/video.mp4",
+  "processed_frames": 1976,
+  "start_frame": 0,
+  "frame_step": 1,
+  "events_count": 2
+}

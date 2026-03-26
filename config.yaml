@@ -1,0 +1,32 @@
+model:
+  weights: "yolov8n.pt"
+  conf: 0.35
+  iou: 0.50
+  device: "0" # CUDA GPU index, e.g. "0". Use "cpu" for CPU.
+  tracker: "bytetrack.yaml"
+
+processing:
+  frame_step: 1              # Process every N-th frame
+  start_frame: 0             # First frame to process
+  max_frames: null           # Optional hard limit, e.g. 10000
+  checkpoint_every_frames: 500
+  min_crossing_gap_frames: 12
+  show_progress: true
+
+counting:
+  # The line orientation defines direction:
+  # crossing from LEFT side -> RIGHT side counts as "IN"
+  # crossing from RIGHT side -> LEFT side counts as "OUT"
+  line:
+    x1: 640
+    y1: 120
+    x2: 640
+    y2: 680
+
+output:
+  save_preview_video: false
+  preview_fps: null          # null => source FPS
+  preview_codec: "mp4v"
+  events_csv_name: "events.csv"
+  summary_json_name: "summary.json"
+  preview_video_name: "preview.mp4"

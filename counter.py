@@ -29,8 +29,11 @@ class CounterConfig:
     checkpoint_every_frames: int
     min_crossing_gap_frames: int
     show_progress: bool
+    counting_mode: str
     line_p1: Point
     line_p2: Point
+    zone_split_x: Optional[int]
+    zone_margin_px: int
     save_preview_video: bool
     preview_fps: Optional[float]
     preview_codec: str
@@ -59,8 +62,8 @@ class LineCrossingCounter:
         self.line_p1 = line_p1
         self.line_p2 = line_p2
         self.min_crossing_gap_frames = min_crossing_gap_frames
-        self.total_in = 0
-        self.total_out = 0
+        self.from_left = 0
+        self.from_right = 0
         self.events: List[CountingEvent] = []
 
         self._last_side_by_track: Dict[int, float] = {}
@@ -84,11 +87,11 @@ class LineCrossingCounter:
         if frame_idx - last_counted_frame < self.min_crossing_gap_frames:
             return
 
-        direction = "IN" if previous_side < 0 < current_side else "OUT"
-        if direction == "IN":
-            self.total_in += 1
+        direction = "LEFT_TO_RIGHT" if previous_side < 0 < current_side else "RIGHT_TO_LEFT"
+        if direction == "LEFT_TO_RIGHT":
+            self.from_left += 1
         else:
-            self.total_out += 1
+            self.from_right += 1
 
         self._last_counted_frame_by_track[track_id] = frame_idx
         self.events.append(
@@ -102,9 +105,64 @@ class LineCrossingCounter:
 
     def summary(self) -> Dict[str, int]:
         return {
-            "total_in": self.total_in,
-            "total_out": self.total_out,
-            "net": self.total_in - self.total_out,
+            "total_crossings": self.from_left + self.from_right,
+            "from_left": self.from_left,
+            "from_right": self.from_right,
+        }
+
+
+class ZoneCrossingCounter:
+    def __init__(self, split_x: int, margin_px: int, min_crossing_gap_frames: int) -> None:
+        self.split_x = split_x
+        self.margin_px = max(0, margin_px)
+        self.min_crossing_gap_frames = min_crossing_gap_frames
+        self.from_left = 0
+        self.from_right = 0
+        self.events: List[CountingEvent] = []
+        self._last_zone_by_track: Dict[int, str] = {}
+        self._last_counted_frame_by_track: Dict[int, int] = {}
+
+    def _zone(self, x: float) -> Optional[str]:
+        if x < self.split_x - self.margin_px:
+            return "left"
+        if x > self.split_x + self.margin_px:
+            return "right"
+        return None
+
+    def update_track(self, track_id: int, center_xy: Tuple[float, float], frame_idx: int, time_seconds: float) -> None:
+        zone = self._zone(center_xy[0])
+        if zone is None:
+            return
+
+        previous_zone = self._last_zone_by_track.get(track_id)
+        self._last_zone_by_track[track_id] = zone
+        if previous_zone is None or previous_zone == zone:
+            return
+
+        last_counted_frame = self._last_counted_frame_by_track.get(track_id, -10**12)
+        if frame_idx - last_counted_frame < self.min_crossing_gap_frames:
+            return
+
+        direction = "LEFT_TO_RIGHT" if previous_zone == "left" and zone == "right" else "RIGHT_TO_LEFT"
+        if direction == "LEFT_TO_RIGHT":
+            self.from_left += 1
+        else:
+            self.from_right += 1
+        self._last_counted_frame_by_track[track_id] = frame_idx
+        self.events.append(
+            CountingEvent(
+                frame_idx=frame_idx,
+                time_seconds=time_seconds,
+                track_id=track_id,
+                direction=direction,
+            )
+        )
+
+    def summary(self) -> Dict[str, int]:
+        return {
+            "total_crossings": self.from_left + self.from_right,
+            "from_left": self.from_left,
+            "from_right": self.from_right,
         }
 
 
@@ -114,7 +172,7 @@ class PeopleCounterPipeline:
         self.checkpoint_file = checkpoint_file
         self.resume = resume
         self.model = YOLO(cfg.model_weights)
-        self.counter = LineCrossingCounter(cfg.line_p1, cfg.line_p2, cfg.min_crossing_gap_frames)
+        self.counter = None
 
     def _resolve_start_frame(self) -> int:
         start = self.cfg.start_frame
@@ -136,11 +194,43 @@ class PeopleCounterPipeline:
             json.dump(payload, fp, ensure_ascii=True, indent=2)
 
     @staticmethod
-    def _draw_overlay(frame, line_p1: Point, line_p2: Point, summary: Dict[str, int]) -> None:
-        cv2.line(frame, line_p1, line_p2, (0, 255, 255), 2)
-        cv2.putText(frame, f"IN: {summary['total_in']}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 220, 60), 2)
-        cv2.putText(frame, f"OUT: {summary['total_out']}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (50, 180, 255), 2)
-        cv2.putText(frame, f"NET: {summary['net']}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+    def _draw_overlay(frame, cfg: CounterConfig, summary: Dict[str, int], width: int, height: int) -> None:
+        if cfg.counting_mode == "zone":
+            split_x = cfg.zone_split_x if cfg.zone_split_x is not None else width // 2
+            margin = cfg.zone_margin_px
+            cv2.line(frame, (split_x, 0), (split_x, height), (0, 255, 255), 2)
+            if margin > 0:
+                cv2.line(frame, (split_x - margin, 0), (split_x - margin, height), (100, 100, 255), 1)
+                cv2.line(frame, (split_x + margin, 0), (split_x + margin, height), (100, 100, 255), 1)
+        else:
+            cv2.line(frame, cfg.line_p1, cfg.line_p2, (0, 255, 255), 2)
+        cv2.putText(
+            frame,
+            f"TOTAL: {summary['total_crossings']}",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 255, 255),
+            2,
+        )
+        cv2.putText(
+            frame,
+            f"L->R: {summary['from_left']}",
+            (20, 80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (60, 220, 60),
+            2,
+        )
+        cv2.putText(
+            frame,
+            f"R->L: {summary['from_right']}",
+            (20, 120),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (50, 180, 255),
+            2,
+        )
 
     def run(self, video_path: Path, output_dir: Path) -> Dict[str, int]:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -152,6 +242,16 @@ class PeopleCounterPipeline:
         src_fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+
+        if self.cfg.counting_mode == "zone":
+            split_x = self.cfg.zone_split_x if self.cfg.zone_split_x is not None else (width // 2 if width > 0 else 640)
+            self.counter = ZoneCrossingCounter(
+                split_x=split_x,
+                margin_px=self.cfg.zone_margin_px,
+                min_crossing_gap_frames=self.cfg.min_crossing_gap_frames,
+            )
+        else:
+            self.counter = LineCrossingCounter(self.cfg.line_p1, self.cfg.line_p2, self.cfg.min_crossing_gap_frames)
 
         start_frame = self._resolve_start_frame()
         if start_frame > 0:
@@ -214,7 +314,7 @@ class PeopleCounterPipeline:
                             )
 
             if preview_writer is not None:
-                self._draw_overlay(frame, self.cfg.line_p1, self.cfg.line_p2, self.counter.summary())
+                self._draw_overlay(frame, self.cfg, self.counter.summary(), width, height)
                 preview_writer.write(frame)
 
             processed_frames += 1

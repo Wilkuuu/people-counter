@@ -17,7 +17,9 @@ def _load_config(path: Path) -> CounterConfig:
     processing = raw["processing"]
     counting = raw["counting"]
     output = raw["output"]
-    line = counting["line"]
+    line = counting.get("line", {})
+    zone = counting.get("zone", {})
+    mode = str(counting.get("mode", "zone")).lower()
 
     return CounterConfig(
         model_weights=str(model.get("weights", "yolov8n.pt")),
@@ -31,8 +33,11 @@ def _load_config(path: Path) -> CounterConfig:
         checkpoint_every_frames=max(int(processing.get("checkpoint_every_frames", 500)), 0),
         min_crossing_gap_frames=max(int(processing.get("min_crossing_gap_frames", 12)), 0),
         show_progress=bool(processing.get("show_progress", True)),
-        line_p1=(int(line["x1"]), int(line["y1"])),
-        line_p2=(int(line["x2"]), int(line["y2"])),
+        counting_mode=mode if mode in {"zone", "line"} else "zone",
+        line_p1=(int(line.get("x1", 640)), int(line.get("y1", 120))),
+        line_p2=(int(line.get("x2", 640)), int(line.get("y2", 680))),
+        zone_split_x=(int(zone["split_x"]) if zone.get("split_x") is not None else None),
+        zone_margin_px=max(int(zone.get("margin_px", 40)), 0),
         save_preview_video=bool(output.get("save_preview_video", False)),
         preview_fps=output.get("preview_fps", None),
         preview_codec=str(output.get("preview_codec", "mp4v")),
@@ -77,9 +82,9 @@ def main() -> None:
 
     print("=== PEOPLE COUNTER SUMMARY ===")
     print(f"video: {video_path}")
-    print(f"IN:   {summary['total_in']}")
-    print(f"OUT:  {summary['total_out']}")
-    print(f"NET:  {summary['net']}")
+    print(f"TOTAL:     {summary['total_crossings']}")
+    print(f"L->R:      {summary['from_left']}")
+    print(f"R->L:      {summary['from_right']}")
     print(f"events: {summary['events_count']}")
     print(f"processed_frames: {summary['processed_frames']}")
     print(f"outputs: {output_dir}")
