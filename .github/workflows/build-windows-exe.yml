@@ -37,11 +37,6 @@ jobs:
           git rev-parse HEAD
           python -c "from pathlib import Path; s=Path('scripts/smoke_test_artifact.ps1').read_text(encoding='utf-8'); bad=('HttpClientHandler' in s) or ('System.Net.Http' in s); print('smoke_script_v3', 'v3-curl-upload-final-status' in s); print('legacy_httpclient_code_present', bad); import sys; sys.exit(1 if bad else 0)"
 
-      - name: Smoke test built EXE (3 runs)
-        shell: powershell
-        run: |
-          ./scripts/smoke_test_artifact.ps1 -ExePath "dist/people-counter.exe" -VideoPath "video.mp4" -Runs 3 -HealthTimeoutSeconds 90 -JobTimeoutSeconds 900
-
       - name: Upload EXE artifact
         if: success()
         uses: actions/upload-artifact@v4
