@@ -9,7 +9,7 @@ a = Analysis(
         ('web/templates', 'web/templates'),
         ('config.example.yaml', '.'),
     ],
-    hiddenimports=['web.app'],
+    hiddenimports=['web.app', 'lap'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

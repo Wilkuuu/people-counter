@@ -9,3 +9,4 @@ uvicorn
 jinja2
 python-multipart
 pyinstaller
+lap>=0.5.12
