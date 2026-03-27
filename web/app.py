@@ -6,6 +6,7 @@ import csv
 import json
 import subprocess
 import shutil
+import sys
 import threading
 import uuid
 
@@ -19,7 +20,10 @@ from main import load_config
 from reporting import generate_html_report
 
 
-ROOT = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    ROOT = Path(getattr(sys, "_MEIPASS"))
+else:
+    ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 OUTPUTS_ROOT = ROOT / "outputs" / "jobs"
 OUTPUTS_ROOT.mkdir(parents=True, exist_ok=True)

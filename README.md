@@ -99,3 +99,30 @@ Funkcje MVP:
 - wynik analizy z liczbą osób,
 - oś czasu zdarzeń (przycisk przeskakuje player do momentu zdarzenia),
 - link do `report.html`, `summary.json`, `events.csv`.
+
+## 8) Windows `.exe` (onefile)
+
+Docelowy wariant: pojedynczy plik `people-counter.exe`, który po dwukliku uruchamia lokalny serwer i otwiera przeglądarkę.
+
+### Build (wykonaj na Windows)
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pyinstaller people_counter.spec --clean
+```
+
+Wynik:
+- `dist\people-counter.exe`
+
+### Uruchomienie
+
+- dwuklik `people-counter.exe`
+- aplikacja otworzy `http://127.0.0.1:8000`
+
+### Uwagi
+
+- Build `.exe` powinien być robiony na Windows (cross-build z Linuxa nie jest wspierany).
+- Przy pierwszym uruchomieniu firewall Windows może zapytać o zgodę.
+- Jeśli source video ma kodek HEVC, aplikacja przygotowuje `web_preview.mp4` (H.264) dla kompatybilności z przeglądarką.
