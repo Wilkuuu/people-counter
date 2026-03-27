@@ -10,7 +10,7 @@ param(
     [int]$JobTimeoutSeconds = 900
 )
 
-# smoke_test_artifact version: v2-curl-upload
+# smoke_test_artifact version: v3-curl-upload-final-status
 $ErrorActionPreference = "Stop"
 
 function Wait-ForHealth {
@@ -50,21 +50,35 @@ function Wait-ForJobDone {
 
 function Start-AnalyzeJob {
     param([string]$VideoFile)
-    $curlOutput = & curl.exe -sS -i -X POST -F "video=@$VideoFile" -F "preset=balanced" "http://127.0.0.1:8000/analyze"
+    # Disable Expect: 100-continue handshake to reduce intermediary status noise.
+    $curlOutput = & curl.exe -sS -i --http1.1 -H "Expect:" -X POST -F "video=@$VideoFile" -F "preset=balanced" "http://127.0.0.1:8000/analyze"
     if ($LASTEXITCODE -ne 0) {
         throw "curl analyze request failed with exit code $LASTEXITCODE"
     }
-    if ($curlOutput -notmatch "HTTP\/1\.[01]\s+(302|303)") {
-        throw "Analyze returned unexpected response: $curlOutput"
+
+    $statusMatches = [regex]::Matches($curlOutput, "HTTP\/1\.[01]\s+(\d{3})")
+    if ($statusMatches.Count -eq 0) {
+        $snippet = ($curlOutput -replace "\s+", " ").Substring(0, [Math]::Min(300, ($curlOutput -replace "\s+", " ").Length))
+        throw "Analyze response had no HTTP status line. Snippet: $snippet"
     }
-    if ($curlOutput -notmatch "(?im)^location:\s*(.+)\s*$") {
-        throw "Analyze response missing location header: $curlOutput"
+    $finalStatus = [int]$statusMatches[$statusMatches.Count - 1].Groups[1].Value
+    if ($finalStatus -ne 302 -and $finalStatus -ne 303) {
+        $snippet = ($curlOutput -replace "\s+", " ").Substring(0, [Math]::Min(400, ($curlOutput -replace "\s+", " ").Length))
+        throw "Analyze returned unexpected final status: $finalStatus. Snippet: $snippet"
     }
-    $locationText = $Matches[1].Trim()
-    if ($locationText -notmatch "/jobs/([^/]+)$") {
-        throw "Cannot parse job id from location: $locationText"
+
+    $locationMatches = [regex]::Matches($curlOutput, "(?im)^location:\s*(.+)\s*$")
+    if ($locationMatches.Count -eq 0) {
+        $snippet = ($curlOutput -replace "\s+", " ").Substring(0, [Math]::Min(400, ($curlOutput -replace "\s+", " ").Length))
+        throw "Analyze response missing location header. Final status: $finalStatus. Snippet: $snippet"
     }
-    return $Matches[1]
+    $locationText = $locationMatches[$locationMatches.Count - 1].Groups[1].Value.Trim()
+    $jobMatch = [regex]::Match($locationText, "/jobs/([^/]+)$")
+    if (-not $jobMatch.Success) {
+        throw "Cannot parse job id from location: $locationText (final status: $finalStatus)"
+    }
+    Write-Host "Analyze redirect accepted. Final status: $finalStatus, location: $locationText"
+    return $jobMatch.Groups[1].Value
 }
 
 function Assert-OutputFiles {
