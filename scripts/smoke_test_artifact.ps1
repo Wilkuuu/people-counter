@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[void][System.Reflection.Assembly]::Load("System.Net.Http")
 
 function Wait-ForHealth {
     param([int]$TimeoutSeconds)
