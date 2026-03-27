@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -22,11 +23,20 @@ from reporting import generate_html_report
 
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     ROOT = Path(getattr(sys, "_MEIPASS"))
+    RUNTIME_ROOT = Path(sys.executable).resolve().parent
 else:
     ROOT = Path(__file__).resolve().parent.parent
+    RUNTIME_ROOT = ROOT
 TEMPLATES = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
-OUTPUTS_ROOT = ROOT / "outputs" / "jobs"
+OUTPUTS_ROOT = RUNTIME_ROOT / "outputs" / "jobs"
 OUTPUTS_ROOT.mkdir(parents=True, exist_ok=True)
+LOG_FILE = RUNTIME_ROOT / "people-counter.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler()],
+)
+LOGGER = logging.getLogger("people_counter.web")
 
 app = FastAPI(title="People Counter Web")
 app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_ROOT.parent)), name="outputs")
@@ -36,6 +46,9 @@ JOBS: dict[str, dict] = {}
 
 def _ensure_web_video(src_video: Path, dst_video: Path) -> None:
     if dst_video.exists():
+        return
+    if shutil.which("ffmpeg") is None:
+        # ffmpeg is optional; skip conversion when unavailable.
         return
     cmd = [
         "ffmpeg",
@@ -51,7 +64,11 @@ def _ensure_web_video(src_video: Path, dst_video: Path) -> None:
         "+faststart",
         str(dst_video),
     ]
-    subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        # Guard for environments where ffmpeg disappears at runtime.
+        return
 
 
 def _run_job(job_id: str, config_path: Path, video_path: Path, output_dir: Path) -> None:
@@ -64,15 +81,18 @@ def _run_job(job_id: str, config_path: Path, video_path: Path, output_dir: Path)
             }
 
         cfg = load_config(config_path)
+        LOGGER.info("Starting job_id=%s preset=%s video=%s", job_id, JOBS[job_id]["preset"], video_path)
         pipeline = PeopleCounterPipeline(cfg=cfg, checkpoint_file=output_dir / "checkpoint.json", resume=False)
         summary = pipeline.run(video_path=video_path, output_dir=output_dir, progress_callback=on_progress)
         _ensure_web_video(video_path, output_dir / "web_preview.mp4")
         generate_html_report(output_dir)
         JOBS[job_id]["status"] = "done"
         JOBS[job_id]["summary"] = summary
+        LOGGER.info("Completed job_id=%s total_crossings=%s", job_id, summary.get("total_crossings"))
     except Exception as exc:  # pragma: no cover
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(exc)
+        LOGGER.exception("Job failed job_id=%s", job_id)
 
 
 def _read_events(events_path: Path) -> list[dict]:
@@ -91,12 +111,18 @@ def index(request: Request):
     return TEMPLATES.TemplateResponse(request, "index.html", {"request": request})
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/analyze")
 async def analyze(
     request: Request,
     video: UploadFile = File(...),
     preset: str = Form("balanced"),
 ):
+    LOGGER.info("Received analyze request preset=%s filename=%s", preset, video.filename or "input.mp4")
     job_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
     output_dir = OUTPUTS_ROOT / job_id
     output_dir.mkdir(parents=True, exist_ok=True)

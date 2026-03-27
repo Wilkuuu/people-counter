@@ -109,12 +109,24 @@ Docelowy wariant: pojedynczy plik `people-counter.exe`, który po dwukliku uruch
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
+pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
 pip install -r requirements.txt
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.device_count())"
 pyinstaller people_counter.spec --clean
 ```
 
 Wynik:
 - `dist\people-counter.exe`
+
+### Lokalny smoke test artifactu (jak użytkownik po pobraniu)
+
+Uruchamia gotowy `EXE` w izolowanym katalogu tymczasowym, wysyła `video.mp4` do webpanelu i sprawdza pliki wynikowe.
+
+```powershell
+.\scripts\smoke_test_artifact.ps1 -ExePath "dist\people-counter.exe" -VideoPath "video.mp4" -Runs 3
+```
+
+Jeśli ten test przechodzi, artifact jest gotowy do publikacji.
 
 ### Uruchomienie
 
@@ -126,3 +138,5 @@ Wynik:
 - Build `.exe` powinien być robiony na Windows (cross-build z Linuxa nie jest wspierany).
 - Przy pierwszym uruchomieniu firewall Windows może zapytać o zgodę.
 - Jeśli source video ma kodek HEVC, aplikacja przygotowuje `web_preview.mp4` (H.264) dla kompatybilności z przeglądarką.
+- Gdy `ffmpeg` nie jest dostępny, aplikacja pomija transkodowanie `web_preview.mp4` (bez przerywania analizy).
+- Jeśli `torch.version.cuda` jest `None`, powstanie CPU-only EXE i będzie działać wolniej na hostach z GPU.

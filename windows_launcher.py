@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 import time
 import webbrowser
+from pathlib import Path
 
 import uvicorn
 
@@ -11,6 +13,15 @@ import uvicorn
 HOST = "127.0.0.1"
 PORT = 8000
 URL = f"http://{HOST}:{PORT}"
+LOG_FILE = Path.cwd() / "people-counter-launcher.log"
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler()],
+)
+LOGGER = logging.getLogger("people_counter.launcher")
 
 
 def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
@@ -29,15 +40,21 @@ def _open_browser_when_ready(timeout_seconds: int = 30) -> None:
 
 
 def main() -> None:
+    LOGGER.info("Launcher start host=%s port=%s", HOST, PORT)
     # If server is already running, just open browser.
     if _port_open(HOST, PORT):
+        LOGGER.info("Server already running, opening browser: %s", URL)
         webbrowser.open(URL)
         return
 
     thread = threading.Thread(target=_open_browser_when_ready, daemon=True)
     thread.start()
 
-    uvicorn.run("web.app:app", host=HOST, port=PORT, reload=False, log_level="info")
+    try:
+        uvicorn.run("web.app:app", host=HOST, port=PORT, reload=False, log_level="info")
+    except Exception:
+        LOGGER.exception("Launcher failed")
+        raise
 
 
 if __name__ == "__main__":

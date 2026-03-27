@@ -26,13 +26,19 @@ jobs:
 
       - name: Verify torch CUDA build
         run: |
-          python -c "import torch; print('torch', torch.__version__); print('compiled_cuda', torch.version.cuda); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count())"
+          python -c "import torch,sys; print('torch', torch.__version__); print('compiled_cuda', torch.version.cuda); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count()); sys.exit(0 if torch.version.cuda else 1)"
 
       - name: Build onefile EXE
         run: |
           pyinstaller people_counter.spec --clean
 
+      - name: Smoke test built EXE (3 runs)
+        shell: powershell
+        run: |
+          ./scripts/smoke_test_artifact.ps1 -ExePath "dist/people-counter.exe" -VideoPath "video.mp4" -Runs 3 -HealthTimeoutSeconds 90 -JobTimeoutSeconds 900
+
       - name: Upload EXE artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: people-counter-windows-exe
