@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import copy
+import re
 from pathlib import Path
 from typing import Any, Dict
 
+import torch
 import yaml
 
 from counter import CounterConfig, PeopleCounterPipeline
@@ -28,6 +30,69 @@ PRESETS: Dict[str, Dict[str, Any]] = {
         "tracker": {"agnostic_nms": False},
     },
 }
+
+
+def _best_cuda_device_index() -> int | None:
+    if not torch.cuda.is_available():
+        return None
+    count = torch.cuda.device_count()
+    if count <= 0:
+        return None
+
+    best_idx = 0
+    best_total_mem = -1
+    for idx in range(count):
+        try:
+            total_mem = int(torch.cuda.get_device_properties(idx).total_memory)
+        except Exception:
+            total_mem = 0
+        if total_mem > best_total_mem:
+            best_total_mem = total_mem
+            best_idx = idx
+    return best_idx
+
+
+def _warn_cuda_unavailable(requested_device: str) -> None:
+    print(
+        f"[warn] CUDA device '{requested_device}' requested, but CUDA is unavailable. "
+        "Falling back to 'cpu'."
+    )
+
+
+def resolve_device(requested_device: str) -> str:
+    normalized = str(requested_device or "").strip().lower()
+    if normalized in {"", "auto", "cuda"}:
+        best_idx = _best_cuda_device_index()
+        if best_idx is None:
+            print("[info] CUDA not available. Using 'cpu'.")
+            return "cpu"
+        selected = str(best_idx)
+        print(f"[info] Using CUDA device '{selected}'.")
+        return selected
+
+    if normalized == "cpu":
+        return "cpu"
+
+    if re.fullmatch(r"\d+(,\d+)*", normalized):
+        if not torch.cuda.is_available():
+            _warn_cuda_unavailable(requested_device)
+            return "cpu"
+
+        count = torch.cuda.device_count()
+        requested_ids = [int(part) for part in normalized.split(",")]
+        valid_ids = [idx for idx in requested_ids if 0 <= idx < count]
+        if not valid_ids:
+            best_idx = _best_cuda_device_index()
+            fallback = "cpu" if best_idx is None else str(best_idx)
+            print(
+                f"[warn] Requested CUDA device(s) '{requested_device}' are invalid for this host "
+                f"(available: 0..{max(count - 1, 0)}). Falling back to '{fallback}'."
+            )
+            return fallback
+        return ",".join(str(idx) for idx in valid_ids)
+
+    print(f"[warn] Unknown device '{requested_device}'. Falling back to auto-detection.")
+    return resolve_device("auto")
 
 
 def _deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
@@ -63,7 +128,7 @@ def load_config(path: Path, preset_override: str | None = None) -> CounterConfig
         model_weights=str(model.get("weights", "yolov8n.pt")),
         model_conf=float(model.get("conf", 0.35)),
         model_iou=float(model.get("iou", 0.50)),
-        model_device=str(model.get("device", "0")),
+        model_device=resolve_device(str(model.get("device", "auto"))),
         tracker=str(model.get("tracker", "bytetrack.yaml")),
         tracker_config=tracker_cfg,
         preset=preset_name if preset_name in PRESETS else "balanced",
@@ -98,7 +163,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional checkpoint JSON path. Defaults to <output-dir>/checkpoint.json",
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint frame if available")
-    parser.add_argument("--device", default=None, help='Override config device, e.g. "0" or "cpu"')
+    parser.add_argument(
+        "--device",
+        default=None,
+        help='Override config device, e.g. "auto", "0", "0,1", or "cpu"',
+    )
     parser.add_argument(
         "--preset",
         default=None,
@@ -121,7 +190,7 @@ def main() -> None:
 
     cfg = load_config(config_path, preset_override=args.preset)
     if args.device is not None:
-        cfg.model_device = args.device
+        cfg.model_device = resolve_device(args.device)
 
     pipeline = PeopleCounterPipeline(cfg=cfg, checkpoint_file=checkpoint_path, resume=args.resume)
     summary = pipeline.run(video_path=video_path, output_dir=output_dir)

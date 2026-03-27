@@ -21,7 +21,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
           pip install -r requirements.txt
+
+      - name: Verify torch CUDA build
+        run: |
+          python -c "import torch; print('torch', torch.__version__); print('compiled_cuda', torch.version.cuda); print('cuda_available', torch.cuda.is_available()); print('device_count', torch.cuda.device_count())"
 
       - name: Build onefile EXE
         run: |

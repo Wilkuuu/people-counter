@@ -35,7 +35,7 @@ Najważniejsze pola:
 - `counting.zone.margin_px`: martwa strefa przy granicy, ogranicza fałszywe przejścia.
 - `counting.line.{x1,y1,x2,y2}`: linia dla trybu `line` (opcjonalnie).
 - `processing.frame_step`: co ile klatek wykonywać inferencję (`1` = każda klatka).
-- `model.device`: `"0"` dla pierwszego GPU, `"cpu"` dla CPU.
+- `model.device`: `"auto"` (domyślnie, wybiera najlepszy CUDA GPU lub CPU), `"0"`/`"0,1"` dla konkretnych GPU, `"cpu"` dla CPU.
 - `processing.min_crossing_gap_frames`: minimalny odstęp między kolejnymi zliczeniami jednego `track_id`.
 
 ## 4) Uruchomienie
@@ -59,7 +59,7 @@ python main.py --video /sciezka/do/video.mp4 --config config.yaml --output-dir o
 Nadpisanie urządzenia z CLI:
 
 ```bash
-python main.py --video /sciezka/do/video.mp4 --config config.yaml --device 0
+python main.py --video /sciezka/do/video.mp4 --config config.yaml --device auto
 ```
 
 ## 5) Wyniki
