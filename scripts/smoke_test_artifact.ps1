@@ -11,7 +11,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-[void][System.Reflection.Assembly]::Load("System.Net.Http")
 
 function Wait-ForHealth {
     param([int]$TimeoutSeconds)
@@ -50,39 +49,21 @@ function Wait-ForJobDone {
 
 function Start-AnalyzeJob {
     param([string]$VideoFile)
-    $handler = New-Object System.Net.Http.HttpClientHandler
-    $handler.AllowAutoRedirect = $false
-    $client = New-Object System.Net.Http.HttpClient($handler)
-    try {
-        $fileStream = [System.IO.File]::OpenRead($VideoFile)
-        try {
-            $content = New-Object System.Net.Http.MultipartFormDataContent
-            $videoContent = New-Object System.Net.Http.StreamContent($fileStream)
-            $videoContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("video/mp4")
-            $content.Add($videoContent, "video", [System.IO.Path]::GetFileName($VideoFile))
-            $content.Add((New-Object System.Net.Http.StringContent("balanced")), "preset")
-
-            $response = $client.PostAsync("http://127.0.0.1:8000/analyze", $content).Result
-            if (($response.StatusCode -ne 303) -and ($response.StatusCode -ne 302)) {
-                throw "Analyze returned unexpected status code: $($response.StatusCode)"
-            }
-
-            $location = $response.Headers.Location
-            if ($null -eq $location) {
-                throw "Analyze response missing redirect location header"
-            }
-            $locationText = $location.OriginalString
-            if ($locationText -notmatch "/jobs/([^/]+)$") {
-                throw "Cannot parse job id from location: $locationText"
-            }
-            return $Matches[1]
-        } finally {
-            $fileStream.Dispose()
-        }
-    } finally {
-        $client.Dispose()
-        $handler.Dispose()
+    $curlOutput = & curl.exe -sS -i -X POST -F "video=@$VideoFile" -F "preset=balanced" "http://127.0.0.1:8000/analyze"
+    if ($LASTEXITCODE -ne 0) {
+        throw "curl analyze request failed with exit code $LASTEXITCODE"
     }
+    if ($curlOutput -notmatch "HTTP\/1\.[01]\s+(302|303)") {
+        throw "Analyze returned unexpected response: $curlOutput"
+    }
+    if ($curlOutput -notmatch "(?im)^location:\s*(.+)\s*$") {
+        throw "Analyze response missing location header: $curlOutput"
+    }
+    $locationText = $Matches[1].Trim()
+    if ($locationText -notmatch "/jobs/([^/]+)$") {
+        throw "Cannot parse job id from location: $locationText"
+    }
+    return $Matches[1]
 }
 
 function Assert-OutputFiles {
