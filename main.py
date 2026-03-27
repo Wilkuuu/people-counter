@@ -1,17 +1,52 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from pathlib import Path
 from typing import Any, Dict
 
 import yaml
 
 from counter import CounterConfig, PeopleCounterPipeline
+from reporting import generate_html_report
 
 
-def _load_config(path: Path) -> CounterConfig:
+PRESETS: Dict[str, Dict[str, Any]] = {
+    "speed": {
+        "model": {"weights": "yolov8n.pt", "conf": 0.45, "iou": 0.50},
+        "processing": {"frame_step": 2, "min_crossing_gap_frames": 10},
+        "tracker": {"agnostic_nms": True},
+    },
+    "balanced": {
+        "model": {"weights": "yolov8m.pt", "conf": 0.35, "iou": 0.55},
+        "processing": {"frame_step": 1, "min_crossing_gap_frames": 14},
+        "tracker": {"agnostic_nms": False},
+    },
+    "accuracy": {
+        "model": {"weights": "yolov8l.pt", "conf": 0.25, "iou": 0.60},
+        "processing": {"frame_step": 1, "min_crossing_gap_frames": 18},
+        "tracker": {"agnostic_nms": False},
+    },
+}
+
+
+def _deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    merged = copy.deepcopy(base)
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: Path, preset_override: str | None = None) -> CounterConfig:
     with path.open("r", encoding="utf-8") as fp:
-        raw: Dict[str, Any] = yaml.safe_load(fp)
+        raw: Dict[str, Any] = yaml.safe_load(fp) or {}
+
+    preset_name = str(preset_override or raw.get("preset", "balanced")).lower()
+    preset_update = PRESETS.get(preset_name, PRESETS["balanced"])
+    raw = _deep_merge(raw, preset_update)
 
     model = raw["model"]
     processing = raw["processing"]
@@ -20,6 +55,9 @@ def _load_config(path: Path) -> CounterConfig:
     line = counting.get("line", {})
     zone = counting.get("zone", {})
     mode = str(counting.get("mode", "zone")).lower()
+    tracker_cfg = raw.get("tracker_config", {})
+    if not isinstance(tracker_cfg, dict):
+        tracker_cfg = {}
 
     return CounterConfig(
         model_weights=str(model.get("weights", "yolov8n.pt")),
@@ -27,6 +65,8 @@ def _load_config(path: Path) -> CounterConfig:
         model_iou=float(model.get("iou", 0.50)),
         model_device=str(model.get("device", "0")),
         tracker=str(model.get("tracker", "bytetrack.yaml")),
+        tracker_config=tracker_cfg,
+        preset=preset_name if preset_name in PRESETS else "balanced",
         frame_step=max(int(processing.get("frame_step", 1)), 1),
         start_frame=max(int(processing.get("start_frame", 0)), 0),
         max_frames=processing.get("max_frames", None),
@@ -59,6 +99,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint frame if available")
     parser.add_argument("--device", default=None, help='Override config device, e.g. "0" or "cpu"')
+    parser.add_argument(
+        "--preset",
+        default=None,
+        choices=["speed", "balanced", "accuracy"],
+        help="Quality/speed preset overriding config",
+    )
     return parser.parse_args()
 
 
@@ -73,20 +119,24 @@ def main() -> None:
         else output_dir / "checkpoint.json"
     )
 
-    cfg = _load_config(config_path)
+    cfg = load_config(config_path, preset_override=args.preset)
     if args.device is not None:
         cfg.model_device = args.device
 
     pipeline = PeopleCounterPipeline(cfg=cfg, checkpoint_file=checkpoint_path, resume=args.resume)
     summary = pipeline.run(video_path=video_path, output_dir=output_dir)
+    generate_html_report(output_dir=output_dir)
 
     print("=== PEOPLE COUNTER SUMMARY ===")
     print(f"video: {video_path}")
+    print(f"preset:    {summary['preset']}")
     print(f"TOTAL:     {summary['total_crossings']}")
     print(f"L->R:      {summary['from_left']}")
     print(f"R->L:      {summary['from_right']}")
     print(f"events: {summary['events_count']}")
     print(f"processed_frames: {summary['processed_frames']}")
+    print(f"elapsed_seconds: {summary['elapsed_seconds']}")
+    print(f"effective_fps: {summary['effective_fps']}")
     print(f"outputs: {output_dir}")
 
 

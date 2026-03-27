@@ -4,3 +4,7 @@ numpy
 pandas
 tqdm
 PyYAML
+fastapi
+uvicorn
+jinja2
+python-multipart

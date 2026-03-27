@@ -1,9 +1,13 @@
+preset: "balanced"            # speed | balanced | accuracy
+
 model:
   weights: "yolov8n.pt"
   conf: 0.35
   iou: 0.50
   device: "0" # CUDA GPU index, e.g. "0". Use "cpu" for CPU.
   tracker: "bytetrack.yaml"
+tracker_config:
+  agnostic_nms: false
 
 processing:
   frame_step: 1              # Process every N-th frame

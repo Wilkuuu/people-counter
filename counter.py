@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import json
 import math
 import time
@@ -23,6 +23,8 @@ class CounterConfig:
     model_iou: float
     model_device: str
     tracker: str
+    tracker_config: Dict[str, Any]
+    preset: str
     frame_step: int
     start_frame: int
     max_frames: Optional[int]
@@ -232,7 +234,13 @@ class PeopleCounterPipeline:
             2,
         )
 
-    def run(self, video_path: Path, output_dir: Path) -> Dict[str, int]:
+    def run(
+        self,
+        video_path: Path,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
+        started_at = time.time()
         output_dir.mkdir(parents=True, exist_ok=True)
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
@@ -290,6 +298,7 @@ class PeopleCounterPipeline:
                     iou=self.cfg.model_iou,
                     device=self.cfg.model_device,
                     verbose=False,
+                    **self.cfg.tracker_config,
                 )
                 result = results[0]
                 boxes = result.boxes
@@ -320,6 +329,14 @@ class PeopleCounterPipeline:
             processed_frames += 1
             if pbar is not None:
                 pbar.update(1)
+            if progress_callback is not None and (processed_frames == 1 or processed_frames % 10 == 0):
+                progress_callback(
+                    {
+                        "processed_frames": processed_frames,
+                        "total_frames": total_frames,
+                        "percent": (processed_frames / total_frames * 100.0) if total_frames > 0 else None,
+                    }
+                )
 
             if (
                 self.cfg.checkpoint_every_frames > 0
@@ -336,11 +353,21 @@ class PeopleCounterPipeline:
             pbar.close()
 
         self._save_checkpoint(frame_idx)
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "processed_frames": processed_frames,
+                    "total_frames": total_frames,
+                    "percent": 100.0,
+                }
+            )
 
         events_path = output_dir / self.cfg.events_csv_name
         pd.DataFrame([asdict(e) for e in self.counter.events]).to_csv(events_path, index=False)
 
         summary = self.counter.summary()
+        elapsed_seconds = max(time.time() - started_at, 0.001)
+        effective_fps = processed_frames / elapsed_seconds
         summary_payload = {
             **summary,
             "video_path": str(video_path),
@@ -348,6 +375,10 @@ class PeopleCounterPipeline:
             "start_frame": start_frame,
             "frame_step": self.cfg.frame_step,
             "events_count": len(self.counter.events),
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            "effective_fps": round(effective_fps, 3),
+            "model_weights": self.cfg.model_weights,
+            "preset": self.cfg.preset,
         }
         summary_path = output_dir / self.cfg.summary_json_name
         with summary_path.open("w", encoding="utf-8") as fp:

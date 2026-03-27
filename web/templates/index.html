@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>People Counter</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    .card { max-width: 700px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; background: #f9fafb; }
+    .row { margin: 12px 0; }
+    button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>People Counter Webpanel</h1>
+  <div class="card">
+    <form action="/analyze" method="post" enctype="multipart/form-data">
+      <div class="row">
+        <label><strong>Plik wideo</strong></label><br />
+        <input type="file" name="video" accept="video/*" required />
+      </div>
+      <div class="row">
+        <label><strong>Preset</strong></label><br />
+        <select name="preset">
+          <option value="speed">speed</option>
+          <option value="balanced" selected>balanced</option>
+          <option value="accuracy">accuracy</option>
+        </select>
+      </div>
+      <div class="row">
+        <button type="submit">Uruchom analizę</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

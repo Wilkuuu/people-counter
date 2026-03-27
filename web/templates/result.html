@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wynik analizy</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+    .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; background: #f9fafb; }
+    .val { font-size: 20px; font-weight: 700; }
+    .muted { color: #6b7280; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+    .timeline-btn { border: 1px solid #d1d5db; border-radius: 6px; padding: 4px 8px; background: #fff; cursor: pointer; }
+    .progress-wrap { max-width: 760px; margin: 10px 0; }
+    .progress-bar { height: 16px; width: 100%; background: #e5e7eb; border-radius: 9999px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: #2563eb; transition: width .2s ease; }
+  </style>
+</head>
+<body>
+  <h1>Wynik: {{ job_id }}</h1>
+  <p>Status: <strong>{{ status }}</strong></p>
+
+  {% if status == "running" %}
+    <p>Analiza trwa. Postęp aktualizuje się automatycznie.</p>
+    <div class="progress-wrap">
+      <div class="progress-bar">
+        <div id="progressFill" class="progress-fill" style="width: {{ progress.percent or 0 }}%"></div>
+      </div>
+      <p id="progressText" class="muted">
+        {{ "%.1f"|format(progress.percent or 0) }}% · {{ progress.processed_frames or 0 }}
+        {% if progress.total_frames %}/ {{ progress.total_frames }}{% endif %}
+      </p>
+    </div>
+  {% elif status == "error" %}
+    <p>Błąd: {{ error }}</p>
+  {% elif status == "missing" %}
+    <p>Nie znaleziono joba.</p>
+  {% else %}
+    <div class="grid">
+      <div class="card"><div class="muted">Total</div><div class="val">{{ summary.total_crossings }}</div></div>
+      <div class="card"><div class="muted">L->R</div><div class="val">{{ summary.from_left }}</div></div>
+      <div class="card"><div class="muted">R->L</div><div class="val">{{ summary.from_right }}</div></div>
+      <div class="card"><div class="muted">Events</div><div class="val">{{ summary.events_count }}</div></div>
+    </div>
+
+    <p>
+      <a href="{{ report_url }}" target="_blank">Raport HTML</a> |
+      <a href="{{ summary_url }}" target="_blank">summary.json</a> |
+      <a href="{{ events_url }}" target="_blank">events.csv</a>
+    </p>
+
+    {% if video_url %}
+      <video id="player" controls width="960">
+        <source src="{{ video_url }}" type="video/mp4" />
+      </video>
+      <p class="muted">Jeśli przeglądarka nie odtwarza kodeka, otwórz plik bezpośrednio: <a href="{{ video_url }}" target="_blank">video</a></p>
+    {% else %}
+      <p>Brak pliku wideo w artefaktach joba.</p>
+    {% endif %}
+
+    <h2>Timeline zdarzeń</h2>
+    <table>
+      <thead><tr><th>Czas</th><th>Track ID</th><th>Kierunek</th><th>Przejdź</th></tr></thead>
+      <tbody>
+      {% for e in events %}
+        <tr>
+          <td>{{ e.time_seconds }}</td>
+          <td>{{ e.track_id }}</td>
+          <td>{{ e.direction }}</td>
+          <td><button class="timeline-btn" onclick="seekTo({{ e.time_seconds }})">▶</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <script>
+    const JOB_STATUS = "{{ status }}";
+    const JOB_ID = "{{ job_id }}";
+
+    async function refreshProgress() {
+      if (JOB_STATUS !== "running") return;
+      try {
+        const res = await fetch(`/jobs/${JOB_ID}/status`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "done" || data.status === "error") {
+          window.location.reload();
+          return;
+        }
+        const p = data.progress || {};
+        const percent = Number(p.percent || 0);
+        const processed = Number(p.processed_frames || 0);
+        const total = p.total_frames;
+        const fill = document.getElementById("progressFill");
+        const text = document.getElementById("progressText");
+        if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent)).toFixed(2)}%`;
+        if (text) text.textContent = `${percent.toFixed(1)}% · ${processed}${total ? " / " + total : ""}`;
+      } catch (_) {
+        // keep polling even on transient errors
+      }
+    }
+
+    function seekTo(seconds) {
+      const p = document.getElementById("player");
+      if (!p) return;
+      p.currentTime = Number(seconds);
+      p.play();
+    }
+
+    if (JOB_STATUS === "running") {
+      setInterval(refreshProgress, 1000);
+      refreshProgress();
+    }
+  </script>
+</body>
+</html>

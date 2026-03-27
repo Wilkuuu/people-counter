@@ -1,6 +1,6 @@
-# YOLO People Counter
+# YOLO People Counter + Webpanel
 
-Skrypt zlicza osoby na nagraniu wideo przy pomocy YOLO + trackera. Domyślnie używa trybu strefowego lewo/prawo (`zone`), który jest stabilniejszy przy obróconym obrazie.
+Skrypt zlicza osoby na nagraniu wideo przy pomocy YOLO + trackera. Domyślnie używa trybu strefowego lewo/prawo (`zone`), który jest stabilniejszy przy obróconym obrazie. Generuje też raport HTML i ma prosty webpanel FastAPI.
 
 ## 1) Wymagania
 
@@ -29,6 +29,7 @@ cp config.example.yaml config.yaml
 
 Najważniejsze pola:
 
+- `preset`: `speed` / `balanced` / `accuracy` (szybkość kontra precyzja).
 - `counting.mode`: `zone` (zalecane) lub `line`.
 - `counting.zone.split_x`: pionowy podział kadru (`null` = środek szerokości).
 - `counting.zone.margin_px`: martwa strefa przy granicy, ogranicza fałszywe przejścia.
@@ -41,6 +42,12 @@ Najważniejsze pola:
 
 ```bash
 python main.py --video /sciezka/do/video.mp4 --config config.yaml --output-dir outputs/run1
+```
+
+Wymuszenie presetu:
+
+```bash
+python main.py --video /sciezka/do/video.mp4 --config config.yaml --output-dir outputs/run1 --preset accuracy
 ```
 
 Wznowienie po checkpoint:
@@ -61,13 +68,34 @@ W `output-dir` otrzymasz:
 
 - `summary.json` z podsumowaniem (`total_crossings`, `from_left`, `from_right`, liczba klatek).
 - `events.csv` z eventami przejść między strefami (`LEFT_TO_RIGHT` / `RIGHT_TO_LEFT`).
+- `report.html` z czytelnym podsumowaniem i tabelą zdarzeń.
 - `preview.mp4` (opcjonalnie), jeśli `output.save_preview_video: true`.
 - `checkpoint.json` do wznowienia pracy od ostatniej zapisanej klatki.
 
 ## 6) Strojenie pod 30h materiału
 
-- Zacznij od modelu `yolov8n.pt`, potem podbij do większego, jeśli jakość jest za słaba.
+- Zacznij od presetu `balanced`; dla par osób przejdź na `accuracy`.
+- Jeśli pary nadal są zbijane, obniż `model.conf` i podnieś `model.iou` o 0.05-0.10.
 - Dla przyspieszenia zwiększ `processing.frame_step` (np. 2-3), kosztem dokładności.
 - W trybie `zone` ustaw `split_x` tak, by osoby naturalnie przechodziły między lewą i prawą stroną.
 - Zwiększ `margin_px` jeśli tracker drga przy granicy i pojawiają się fałszywe przejścia.
 - Przetestuj 3-5 krótkich fragmentów i porównaj z ręcznym liczeniem, potem skaluj na całość.
+
+## 7) Webpanel
+
+Uruchom:
+
+```bash
+uvicorn web.app:app --reload --port 8000
+```
+
+Następnie otwórz:
+
+- [http://localhost:8000](http://localhost:8000)
+
+Funkcje MVP:
+- upload filmu,
+- wybór presetu,
+- wynik analizy z liczbą osób,
+- oś czasu zdarzeń (przycisk przeskakuje player do momentu zdarzenia),
+- link do `report.html`, `summary.json`, `events.csv`.
