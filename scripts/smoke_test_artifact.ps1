@@ -10,6 +10,7 @@ param(
     [int]$JobTimeoutSeconds = 900
 )
 
+# smoke_test_artifact version: v2-curl-upload
 $ErrorActionPreference = "Stop"
 
 function Wait-ForHealth {
